@@ -1,0 +1,26 @@
+--cpu=Cortex-M4.fp
+"digitaltuner\startup_stm32f412vx.o"
+"digitaltuner\main.o"
+"digitaltuner\stm32f4xx_it.o"
+"digitaltuner\stm32f4xx_hal_msp.o"
+"digitaltuner\stm32f4xx_hal_adc.o"
+"digitaltuner\stm32f4xx_hal_adc_ex.o"
+"digitaltuner\stm32f4xx_hal_tim.o"
+"digitaltuner\stm32f4xx_hal_tim_ex.o"
+"digitaltuner\stm32f4xx_hal_rcc.o"
+"digitaltuner\stm32f4xx_hal_rcc_ex.o"
+"digitaltuner\stm32f4xx_hal_flash.o"
+"digitaltuner\stm32f4xx_hal_flash_ex.o"
+"digitaltuner\stm32f4xx_hal_flash_ramfunc.o"
+"digitaltuner\stm32f4xx_hal_gpio.o"
+"digitaltuner\stm32f4xx_hal_dma_ex.o"
+"digitaltuner\stm32f4xx_hal_dma.o"
+"digitaltuner\stm32f4xx_hal_pwr.o"
+"digitaltuner\stm32f4xx_hal_pwr_ex.o"
+"digitaltuner\stm32f4xx_hal_cortex.o"
+"digitaltuner\stm32f4xx_hal.o"
+"digitaltuner\system_stm32f4xx.o"
+--library_type=microlib --strict --scatter "DigitalTuner\DigitalTuner.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "DigitalTuner.map" -o DigitalTuner\DigitalTuner.axf
