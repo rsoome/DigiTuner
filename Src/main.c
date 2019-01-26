@@ -10,7 +10,7 @@
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
-  * COPYRIGHT(c) 2019 STMicroelectronics
+  * COPYRIGHT(c) 2019	STMicroelectronics
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -77,6 +77,94 @@ static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
+struct LED{
+	int pin;
+	GPIO_TypeDef* port;
+	volatile uint32_t* pwm;
+};
+
+struct LED* TIM4ITLEDs[] = {NULL, NULL, NULL, NULL};
+
+const int SER = 6;
+const int SER_CLK = 7;
+const int SER_STR = 8;
+const int AGC = 15;
+const int AATT = 16;
+
+int numbers[] = {
+		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 3 | 1 << 2,						//0
+		1 << 5 | 1 << 6,																								//1
+		1 << 7 | 1 << 6 | 1 << 1 | 1 << 3 | 1 << 4,											//2
+		1 << 7 | 1 << 5 | 1 << 6 | 1 << 4 | 1 << 1,											//3
+		1 << 6 | 1 << 5 | 1 << 2 | 1 << 1,															//4
+		1 << 7 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1,											//5
+		1 << 1 | 1 << 7 | 1 << 5 | 1 << 4 | 1 << 3 | 1 << 2,						//6
+		1 << 7 | 1 << 6 | 1 << 5,																				//7
+		1 << 7 | 1 <<  1 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 5 | 1 << 6,	//8
+		1 << 7 | 1 << 6 | 1 << 5 | 1 << 2 | 1 << 1,											//9
+		1 << 7 | 1 <<  1 | 1 << 2 | 1 << 3 | 1 << 5 | 1 << 6,						//A
+		1 << 1 | 1 << 5 | 1 << 4 | 1 << 3 | 1 << 2,											//b
+		1 << 7 | 1 << 4 | 1 << 3 | 1 << 2,															//C
+		1 << 3 | 1 << 5 | 1 << 6 | 1 << 4 | 1 << 1,											//d
+		1 << 7 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 1,											//E
+		1 << 7 | 1 <<  1 | 1 << 2 | 1 << 3,															//F
+		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1};						//g
+int ptr = 0;
+
+//Quick hack, approximately 1ms delay
+void ms_delay(int ms)
+{
+   while (ms-- > 0) {
+      volatile int x=5971;
+      while (x-- > 0)
+         __asm("NOP");
+   }
+}
+
+void send7seg(const int inchr){
+	int chr = inchr;
+	GPIOB->ODR &=  (1 << SER_STR)^0xFFFF;
+	ms_delay(5);
+	for(int i = 0; i < 8; i++){
+		int val = chr & 0x01;
+		if(val == 0){
+			GPIOB->ODR &= (1 << SER)^0xFFFF;
+		}
+		else{
+			GPIOB->ODR |= 1 << SER;
+		}
+		ms_delay(5);
+		GPIOB->ODR |= 1 << SER_CLK;
+		chr = chr >> 1;
+		ms_delay(5);
+		GPIOB->ODR &= (1 << SER_CLK)^0xFFFF;
+		ms_delay(5);
+	}
+}
+
+void TIM4_IRQHandler(void) {
+	int states = (TIM4->SR) & (1 | 1 << 1 | 1 << 2 | 1 << 3 | 1 << 4);
+
+	if((states & 1) == 1){
+			for(int i = 0; i < 4; i++){
+				struct LED current = *(TIM4ITLEDs[i]);
+				if(*(current.pwm)){
+					current.port->ODR |= 1 << (*(TIM4ITLEDs[i])).pin;
+				}
+			}
+			TIM4->SR &= (1)^0xFFFF;
+		}
+
+	for(int i = 0; i < 4; i++){
+		int state = states >> (i + 1);
+		state &= 1;
+		if(state == 1){
+			(*(TIM4ITLEDs[i])).port->ODR &= (1 << (*(TIM4ITLEDs[i])).pin)^0xFFFF;
+			TIM4->SR &= (1 << (i+1))^0xFFFF;
+		}
+	}
+}
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -98,6 +186,8 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+	
+	TIM4->DIER = TIM_DIER_UIE;
 
   /* USER CODE BEGIN Init */
 
@@ -114,16 +204,81 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_TIM4_Init();
+	
   /* USER CODE BEGIN 2 */
 
+	struct LED red;
+	struct LED green;
+	struct LED blue;
+	
+	red.pin = 9;
+  red.port = GPIOB;
+  red.pwm = &(TIM4->CCR1);
+  TIM4ITLEDs[0] = &red;
+
+  blue.pin = 0;
+  blue.port = GPIOE;
+  blue.pwm = &(TIM4->CCR2);
+  TIM4ITLEDs[1] = &blue;
+		
+  green.pin = 1;
+  green.port = GPIOE;
+  green.pwm = &(TIM4->CCR3);
+  TIM4ITLEDs[2] = &green;
+		
+	send7seg(0);
+  send7seg(0);
+  GPIOB->ODR |= 1 << SER_STR;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	int intensity = 0;
+	int mask = 0x8;//F0;
+	
+	*(blue.pwm) = 10;
+  *(green.pwm) = 500;
+  *(red.pwm) = 750;
+	
+	HAL_NVIC_SetPriority(TIM4_IRQn, 1, 1);
+	HAL_NVIC_EnableIRQ(TIM4_IRQn);
+	HAL_TIM_Base_Start_IT(&htim4);
+	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_2);
+	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_3);
+	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_4);
+	HAL_ADC_Start(&hadc1);
   while (1)
   {
     /* USER CODE END WHILE */
 
+		ms_delay(250);
+    int maske0 =  (mask & 0x8) >> 3;
+    int maske1 =  (mask & 0x4) >> 2;
+    int maskb =  (mask & 0x2) >> 1;
+    *(blue.pwm) = intensity * maske1;
+    *(green.pwm) = intensity * maske0;
+    *(red.pwm) = intensity * maskb;
+    intensity += 3;
+    intensity %= 1000;
+    //send7seg(numbers[(intensity/10)%10]);
+    //send7seg(numbers[(intensity/100)%10]);
+    mask = mask >> 1;
+    if(mask < 1){
+     mask = 0x8;//F0;
+     GPIOB->ODR |= 1 << SER_STR;
+    }
+		/*if (HAL_ADC_PollForConversion(&hadc1, 1000000) == HAL_OK)
+        {
+            int g_ADCValue = HAL_ADC_GetValue(&hadc1);
+            send7seg(numbers[(g_ADCValue/10)%10]);
+						send7seg(numbers[(g_ADCValue/100)%10]);
+        }*/
+    //send7seg(numbers[ptr]);
+    //send7seg(numbers[ptr]);
+    ptr++;
+    ptr %= sizeof(numbers)/sizeof(int);
+    GPIOB->ODR |= 1 << SER_STR;
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -243,9 +398,9 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 0;
+  htim4.Init.Prescaler = 10;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 0;
+  htim4.Init.Period = 1000;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
   {
@@ -380,6 +535,9 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+	send7seg(numbers[14]);
+	send7seg(numbers[14]);
+	GPIOB->ODR |= 1 << SER_STR;
 
   /* USER CODE END Error_Handler_Debug */
 }
