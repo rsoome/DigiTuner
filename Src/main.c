@@ -252,7 +252,7 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-		ms_delay(250);
+		//ms_delay(250);
     int maske0 =  (mask & 0x8) >> 3;
     int maske1 =  (mask & 0x4) >> 2;
     int maskb =  (mask & 0x2) >> 1;
@@ -264,16 +264,43 @@ int main(void)
     //send7seg(numbers[(intensity/10)%10]);
     //send7seg(numbers[(intensity/100)%10]);
     mask = mask >> 1;
-    if(mask < 1){
+    if(mask < 2){
      mask = 0x8;//F0;
      GPIOB->ODR |= 1 << SER_STR;
     }
-		/*if (HAL_ADC_PollForConversion(&hadc1, 1000000) == HAL_OK)
+		if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
         {
-            int g_ADCValue = HAL_ADC_GetValue(&hadc1);
-            send7seg(numbers[(g_ADCValue/10)%10]);
-						send7seg(numbers[(g_ADCValue/100)%10]);
-        }*/
+            uint16_t g_ADCValue = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+						int div = 100000;
+						int startH = 1;
+						int startL = 1;
+						while(div > 0){
+							int lower = g_ADCValue/(div/10);
+							int higher = g_ADCValue/div;
+							if(lower > 0 && startL) startL = 0;
+							if(higher > 0 && startH) startH = 0;
+							
+							if(div/10 > 0 && !startL){
+								send7seg(numbers[lower%10]);
+							} else {
+								send7seg(0);
+							}
+							if(!startH){
+								send7seg(numbers[higher%10]);
+							} else {
+								send7seg(0);
+							}
+							div /= 10;
+							GPIOB->ODR |= 1 << SER_STR;
+							ms_delay(250);
+						}
+						send7seg(0);
+						send7seg(0);
+						GPIOB->ODR |= 1 << SER_STR;
+						ms_delay(1000);
+						HAL_ADC_Start(&hadc1);
+        }
     //send7seg(numbers[ptr]);
     //send7seg(numbers[ptr]);
     ptr++;
@@ -337,6 +364,7 @@ static void MX_ADC1_Init(void)
 {
 
   /* USER CODE BEGIN ADC1_Init 0 */
+	__ADC1_CLK_ENABLE();
 
   /* USER CODE END ADC1_Init 0 */
 
@@ -365,14 +393,15 @@ static void MX_ADC1_Init(void)
   }
   /**Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time. 
   */
-  sConfig.Channel = ADC_CHANNEL_11;
+  sConfig.Channel = ADC_CHANNEL_10;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
+	
 
   /* USER CODE END ADC1_Init 2 */
 
@@ -463,6 +492,14 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOE_CLK_ENABLE();
+	
+	/* Enable ADC mode one gpio C */
+	
+	GPIO_InitTypeDef gpioInit;
+	gpioInit.Pin = GPIO_PIN_0 | GPIO_PIN_1;
+  gpioInit.Mode = GPIO_MODE_ANALOG;
+  gpioInit.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &gpioInit);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
@@ -502,7 +539,7 @@ static void MX_GPIO_Init(void)
                           |GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15 
                           |GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3 
                           |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
