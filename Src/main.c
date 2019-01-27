@@ -87,6 +87,8 @@ struct LED{
 
 struct LED* TIM4ITLEDs[] = {NULL, NULL, NULL, NULL};
 
+const int BUFLEN = 2048;
+
 const int SER = 6;
 const int SER_CLK = 7;
 const int SER_STR = 8;
@@ -113,6 +115,11 @@ int numbers[] = {
 		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1};						//g
 int ptr = 0;
 uint16_t adc_val = 0;
+int adc_buf[BUFLEN];
+uint16_t adc_peak = 0;
+uint16_t adc_low = 0xFFFF;
+uint8_t bufFull = 0;
+uint16_t bufPos = 0;
 
 //Quick hack, approximately 1ms delay
 void ms_delay(int ms)
@@ -147,6 +154,11 @@ void send7seg(const int inchr){
 
 void ADC_IRQHandler(){
 	adc_val = HAL_ADC_GetValue(&hadc1);
+	if(bufPos < BUFLEN) adc_buf[bufPos] = adc_val - 2048;
+	if(bufPos + 1 < BUFLEN) bufPos++;
+	else bufFull = 1;
+	if(adc_val > adc_peak) adc_peak = adc_val;
+	if(adc_val < adc_low) adc_low = adc_val;
 	HAL_NVIC_ClearPendingIRQ(ADC_IRQn);
 }
 
@@ -288,44 +300,47 @@ int main(void)
      mask = 0x8;//F0;
      GPIOB->ODR |= 1 << SER_STR;
     }
-		//if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
-        //{
-            uint16_t g_ADCValue = adc_val;
-						//HAL_ADC_Stop(&hadc1);
-						int div = 100000;
-						int startH = 1;
-						int startL = 1;
-						while(div > 0){
-							int lower = g_ADCValue/(div/10);
-							int higher = g_ADCValue/div;
-							if(lower > 0 && startL) startL = 0;
-							if(higher > 0 && startH) startH = 0;
-							
-							if(div/10 > 0 && !startL){
-								send7seg(numbers[lower%10]);
-							} else {
-								send7seg(0);
-							}
-							if(!startH){
-								send7seg(numbers[higher%10]);
-							} else {
-								send7seg(0);
-							}
-							div /= 10;
-							GPIOB->ODR |= 1 << SER_STR;
-							ms_delay(50);
-						}
-						send7seg(0);
-						send7seg(0);
-						GPIOB->ODR |= 1 << SER_STR;
-						ms_delay(1000);
-						HAL_ADC_Start(&hadc1);
-        //}
     //send7seg(numbers[ptr]);
     //send7seg(numbers[ptr]);
     ptr++;
     ptr %= sizeof(numbers)/sizeof(int);
     GPIOB->ODR |= 1 << SER_STR;
+		if(bufFull){
+			  uint16_t g_ADCValue = adc_peak - adc_low;
+				//HAL_ADC_Stop(&hadc1);
+				int div = 100000;
+				int startH = 1;
+				int startL = 1;
+				while(div > 0){
+				  int lower = g_ADCValue/(div/10);
+				  int higher = g_ADCValue/div;
+				  if(lower > 0 && startL) startL = 0;
+				  if(higher > 0 && startH) startH = 0;
+				
+				if(div/10 > 0 && !startL){
+					send7seg(numbers[lower%10]);
+				} else {
+					send7seg(0);
+				}
+				if(!startH){
+					send7seg(numbers[higher%10]);
+				} else {
+					send7seg(0);
+				}
+				div /= 10;
+				GPIOB->ODR |= 1 << SER_STR;
+				ms_delay(150);
+			}
+			send7seg(0);
+			send7seg(0);
+			GPIOB->ODR |= 1 << SER_STR;
+			ms_delay(1000);
+		  HAL_ADC_Start(&hadc1);
+			bufPos = 0;
+			bufFull = 0;
+			adc_peak = 0;
+			adc_low = 0xFFFF;
+		}
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -446,7 +461,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = HAL_RCC_GetSysClockFreq()/1000000;
+  htim3.Init.Period = HAL_RCC_GetSysClockFreq()/42000;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
@@ -629,7 +644,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-	HAL_GPIO_WritePin(GPIOD, 0xFFFF, 1);
+	uint16_t gc_initial_state = 0xFF01;
+	HAL_GPIO_WritePin(GPIOD, gc_initial_state, 1);
 
   /*Configure GPIO pins : PB6 PB7 PB8 PB9 */
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9;
