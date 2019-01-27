@@ -40,6 +40,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "yin.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -115,13 +116,14 @@ int numbers[] = {
 		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1};						//g
 int ptr = 0;
 uint16_t adc_val = 0;
-int adc_buf[BUFLEN];
+int16_t adc_buf[BUFLEN];
 uint16_t adc_peak = 0;
 uint16_t adc_low = 0xFFFF;
 uint8_t bufFull = 0;
 uint16_t bufPos = 0;
+uint16_t agc_midpoint = 2048;
 
-//Quick hack, approximately 1ms delay
+//Quick hack, some amount of delay
 void ms_delay(int ms)
 {
    while (ms-- > 0) {
@@ -154,9 +156,12 @@ void send7seg(const int inchr){
 
 void ADC_IRQHandler(){
 	adc_val = HAL_ADC_GetValue(&hadc1);
-	if(bufPos < BUFLEN) adc_buf[bufPos] = adc_val - 2048;
+	if(bufPos < BUFLEN) adc_buf[bufPos] = adc_val - agc_midpoint;
 	if(bufPos + 1 < BUFLEN) bufPos++;
-	else bufFull = 1;
+	else{
+		bufFull = 1;
+		HAL_NVIC_DisableIRQ(TIM3_IRQn);
+	}
 	if(adc_val > adc_peak) adc_peak = adc_val;
 	if(adc_val < adc_low) adc_low = adc_val;
 	HAL_NVIC_ClearPendingIRQ(ADC_IRQn);
@@ -279,8 +284,12 @@ int main(void)
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_3);
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_4);
 	//HAL_ADC_Start(&hadc1);
+	Yin yin;
+	float pitch;
+	Yin_init(&yin, BUFLEN, 0.05);
   while (1)
   {
+		if(bufFull){
 		//if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) 
     /* USER CODE END WHILE */
 
@@ -305,10 +314,17 @@ int main(void)
     ptr++;
     ptr %= sizeof(numbers)/sizeof(int);
     GPIOB->ODR |= 1 << SER_STR;
-		if(bufFull){
+				pitch = Yin_getPitch(&yin, adc_buf);
+				uint8_t neg = 0;
+				/*int16_t g_ADCValue = adc_buf[BUFLEN/2];//adc_peak - adc_low;
+				if(g_ADCValue < 0){
+					neg = 1;
+					g_ADCValue *= -1;
+				}*/
 			  uint16_t g_ADCValue = adc_peak - adc_low;
 				//HAL_ADC_Stop(&hadc1);
-				int div = 100000;
+				//uint16_t g_ADCValue = (uint16_t) (pitch);
+				uint32_t div = 1000000000;
 				int startH = 1;
 				int startL = 1;
 				while(div > 0){
@@ -318,7 +334,9 @@ int main(void)
 				  if(higher > 0 && startH) startH = 0;
 				
 				if(div/10 > 0 && !startL){
-					send7seg(numbers[lower%10]);
+					uint16_t nbr = numbers[lower%10];
+					if(neg) nbr |= 1;
+					send7seg(nbr);
 				} else {
 					send7seg(0);
 				}
@@ -340,6 +358,7 @@ int main(void)
 			bufFull = 0;
 			adc_peak = 0;
 			adc_low = 0xFFFF;
+			HAL_NVIC_EnableIRQ(TIM3_IRQn);
 		}
     /* USER CODE BEGIN 3 */
   }
@@ -461,7 +480,9 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = HAL_RCC_GetSysClockFreq()/42000;
+	int sysclk = HAL_RCC_GetSysClockFreq();
+	int sr = YIN_SAMPLING_RATE;
+  htim3.Init.Period = HAL_RCC_GetSysClockFreq()/YIN_SAMPLING_RATE;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
@@ -528,7 +549,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 5;
+  htim4.Init.Prescaler = HAL_RCC_GetSysClockFreq()/100000;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 1000;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -644,8 +665,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-	uint16_t gc_initial_state = 0xFF01;
+	uint16_t gc_initial_state = 0xFFFF;
 	HAL_GPIO_WritePin(GPIOD, gc_initial_state, 1);
+	uint8_t gc_temp = gc_initial_state;
+	uint8_t resistors_in = 0;
+	float initialResistance = 1000;
+	for(int i = 0; i < 8; i++){
+		if(!(gc_temp & 1)){
+			resistors_in++;
+		}
+		gc_temp >>= 1;
+	}
+	agc_midpoint = (uint16_t) (agc_midpoint * (1 + 100/(initialResistance/resistors_in)));
 
   /*Configure GPIO pins : PB6 PB7 PB8 PB9 */
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9;

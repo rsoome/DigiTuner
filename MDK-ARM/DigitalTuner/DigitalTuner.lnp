@@ -3,6 +3,7 @@
 "digitaltuner\main.o"
 "digitaltuner\stm32f4xx_it.o"
 "digitaltuner\stm32f4xx_hal_msp.o"
+"digitaltuner\yin.o"
 "digitaltuner\stm32f4xx_hal_adc.o"
 "digitaltuner\stm32f4xx_hal_adc_ex.o"
 "digitaltuner\stm32f4xx_hal_tim.o"
