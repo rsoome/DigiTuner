@@ -65,6 +65,7 @@
 ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
 
@@ -75,6 +76,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 struct LED{
@@ -110,6 +112,7 @@ int numbers[] = {
 		1 << 7 | 1 <<  1 | 1 << 2 | 1 << 3,															//F
 		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1};						//g
 int ptr = 0;
+uint16_t adc_val = 0;
 
 //Quick hack, approximately 1ms delay
 void ms_delay(int ms)
@@ -142,7 +145,18 @@ void send7seg(const int inchr){
 	}
 }
 
+void ADC_IRQHandler(){
+	adc_val = HAL_ADC_GetValue(&hadc1);
+	HAL_NVIC_ClearPendingIRQ(ADC_IRQn);
+}
+
+void TIM3_IRQHandler(void) {
+	HAL_ADC_Start_IT(&hadc1);
+	TIM3->SR = 0;
+}
+
 void TIM4_IRQHandler(void) {
+	
 	int states = (TIM4->SR) & (1 | 1 << 1 | 1 << 2 | 1 << 3 | 1 << 4);
 
 	if((states & 1) == 1){
@@ -187,7 +201,7 @@ int main(void)
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 	
-	TIM4->DIER = TIM_DIER_UIE;
+	//TIM4->DIER = TIM_DIER_UIE;
 
   /* USER CODE BEGIN Init */
 
@@ -204,6 +218,7 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_TIM4_Init();
+	MX_TIM3_Init();
 	
   /* USER CODE BEGIN 2 */
 
@@ -240,16 +255,21 @@ int main(void)
   *(green.pwm) = 500;
   *(red.pwm) = 750;
 	
+	HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
 	HAL_NVIC_SetPriority(TIM4_IRQn, 1, 1);
 	HAL_NVIC_EnableIRQ(TIM4_IRQn);
+	HAL_NVIC_EnableIRQ(TIM3_IRQn);
+	HAL_NVIC_EnableIRQ(ADC_IRQn);
 	HAL_TIM_Base_Start_IT(&htim4);
+	HAL_TIM_Base_Start_IT(&htim3);
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_1);
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_2);
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_3);
 	HAL_TIM_OC_Start_IT(&htim4, TIM_CHANNEL_4);
-	HAL_ADC_Start(&hadc1);
+	//HAL_ADC_Start(&hadc1);
   while (1)
   {
+		//if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) 
     /* USER CODE END WHILE */
 
 		//ms_delay(250);
@@ -268,10 +288,10 @@ int main(void)
      mask = 0x8;//F0;
      GPIOB->ODR |= 1 << SER_STR;
     }
-		if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
-        {
-            uint16_t g_ADCValue = HAL_ADC_GetValue(&hadc1);
-						HAL_ADC_Stop(&hadc1);
+		//if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+        //{
+            uint16_t g_ADCValue = adc_val;
+						//HAL_ADC_Stop(&hadc1);
 						int div = 100000;
 						int startH = 1;
 						int startL = 1;
@@ -293,14 +313,14 @@ int main(void)
 							}
 							div /= 10;
 							GPIOB->ODR |= 1 << SER_STR;
-							ms_delay(250);
+							ms_delay(50);
 						}
 						send7seg(0);
 						send7seg(0);
 						GPIOB->ODR |= 1 << SER_STR;
 						ms_delay(1000);
 						HAL_ADC_Start(&hadc1);
-        }
+        //}
     //send7seg(numbers[ptr]);
     //send7seg(numbers[ptr]);
     ptr++;
@@ -407,6 +427,72 @@ static void MX_ADC1_Init(void)
 
 }
 
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+	
+	__HAL_RCC_TIM3_CLK_ENABLE();
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = HAL_RCC_GetSysClockFreq()/1000000;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
 /**
   * @brief TIM4 Initialization Function
   * @param None
@@ -427,7 +513,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 10;
+  htim4.Init.Prescaler = 5;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 1000;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -543,6 +629,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+	HAL_GPIO_WritePin(GPIOD, 0xFFFF, 1);
 
   /*Configure GPIO pins : PB6 PB7 PB8 PB9 */
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9;
