@@ -215,8 +215,6 @@ void SysTick_Handler(void)
 /**
   * @brief This function handles TIM4 global interrupt.
   */
-
-
 //void TIM4_IRQHandler(void)
 //{
   /* USER CODE BEGIN TIM4_IRQn 0 */
@@ -224,7 +222,6 @@ void SysTick_Handler(void)
   /* USER CODE END TIM4_IRQn 0 */
 //  HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
-//	GPIOE->ODR ^= 1 | 1 << 1;
 
   /* USER CODE END TIM4_IRQn 1 */
 //}

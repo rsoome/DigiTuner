@@ -42,6 +42,14 @@
 #include "main.h"
 #include "yin.h"
 
+#define BUFLEN 1024
+#define ACCDIVIDER 128
+#define SEMITONE_CONST 1.05946309
+#define SEMITONE_CONST_INVERSE 0.94387431
+#define EVALSAMPLES = 10
+#define A4 440
+#define NUMBEROFNOTES 12
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -88,8 +96,6 @@ struct LED{
 
 struct LED* TIM4ITLEDs[] = {NULL, NULL, NULL, NULL};
 
-const int BUFLEN = 2048;
-
 const int SER = 6;
 const int SER_CLK = 7;
 const int SER_STR = 8;
@@ -114,6 +120,7 @@ int numbers[] = {
 		1 << 7 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 1,											//E
 		1 << 7 | 1 <<  1 | 1 << 2 | 1 << 3,															//F
 		1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 1 << 2 | 1 << 1};						//g
+
 int ptr = 0;
 uint16_t adc_val = 0;
 int16_t adc_buf[BUFLEN];
@@ -123,6 +130,192 @@ uint8_t bufFull = 0;
 uint16_t bufPos = 0;
 uint16_t agc_midpoint = 2048;
 
+int notebuffer[3];
+float notebuffer_temp[3];
+
+void getLowestOctave(float a4, float minFreq){
+	float currentNote = a4;
+	int octave = 4;
+
+	while(currentNote >= minFreq * 2){
+		currentNote /= 2;
+		octave -= 1;
+	}
+	notebuffer_temp[0] = currentNote;
+	notebuffer_temp[1] = octave;
+}
+
+void getLowestNote(float freq, float fMin){
+	if(fMin < 0) fMin = 0;
+
+	int octave = 0;
+	int semitonePos = 9;
+
+	float currentNote = freq;
+	float prevNote = currentNote * SEMITONE_CONST_INVERSE;
+
+	while(prevNote >= fMin){
+		currentNote = prevNote;
+		semitonePos -= 1;
+
+		if(semitonePos < 0){
+			octave -= 1;
+			semitonePos = NUMBEROFNOTES + semitonePos;
+		}
+
+		prevNote = currentNote * SEMITONE_CONST_INVERSE;
+	}
+
+	notebuffer_temp[0] = currentNote;
+	notebuffer_temp[1] = semitonePos;
+	notebuffer_temp[2] = octave;
+}
+
+void getLowestFreq(float currentNote, float accuracy, float minFreq){
+	float step = accuracy/ACCDIVIDER;
+
+	float prevNote = currentNote * SEMITONE_CONST_INVERSE;
+	float currentFreq = currentNote;
+	float prevFreq = currentNote;
+	int distFromNote = 0;
+	int prevDistFromNote = distFromNote;
+	int semitonePos = 0;
+
+	float diff = (currentNote - prevNote)*step;
+	while(currentFreq >= minFreq){
+		prevDistFromNote = distFromNote;
+		distFromNote -= accuracy;
+
+		if(distFromNote == -ACCDIVIDER - accuracy){
+			semitonePos -= 1;
+			distFromNote = ACCDIVIDER - accuracy;
+		}
+
+		prevFreq = currentFreq;
+		currentFreq -= diff;
+	}
+
+	notebuffer_temp[0] = prevFreq;
+	notebuffer_temp[1] = prevDistFromNote;
+	notebuffer_temp[2] = semitonePos;
+}
+
+void getHighestOctave(float a4, float maxFreq){
+	float currentNote = a4;
+	int octave = 4;
+
+	while(currentNote <= maxFreq * 2){
+		currentNote *= 2;
+		octave += 1;
+	}
+	notebuffer_temp[0] = currentNote;
+	notebuffer_temp[1] = octave;
+}
+
+void getHighestNote(float freq, float fMax){
+
+	int octave = 0;
+	int semitonePos = 9;
+
+	float currentNote = freq;
+	float nextNote = currentNote * SEMITONE_CONST;
+
+	while(nextNote <= fMax){
+		currentNote = nextNote;
+		semitonePos += 1;
+
+		if(semitonePos >= NUMBEROFNOTES){
+			octave += 1;
+			semitonePos = 0;
+		}
+
+		nextNote = currentNote * SEMITONE_CONST;
+	}
+
+	notebuffer_temp[0] = currentNote;
+	notebuffer_temp[1] = semitonePos;
+	notebuffer_temp[2] = octave;
+}
+
+void getHighestFreq(float currentNote, float accuracy, float maxFreq){
+	float step = accuracy/ACCDIVIDER;
+
+	float nextNote = currentNote * SEMITONE_CONST;
+	float currentFreq = currentNote;
+	float prevFreq = currentNote;
+	int distFromNote = 0;
+	int prevDistFromNote = distFromNote;
+	int semitonePos = 0;
+
+	float diff = (currentNote - nextNote)*step;
+	while(currentFreq <= maxFreq){
+		prevFreq = currentFreq;
+		currentFreq -= diff;
+		prevDistFromNote = distFromNote;
+		distFromNote -= accuracy;
+
+		if(distFromNote == ACCDIVIDER){
+			semitonePos += 1;
+			distFromNote *= -1;
+		}
+	}
+
+	notebuffer_temp[0] = prevFreq;
+	notebuffer_temp[1] = prevDistFromNote;
+	notebuffer_temp[2] = semitonePos;
+}
+
+void getNote(float freq, int accuracy, float a4){
+
+	if(freq < a4){
+		getLowestOctave(A4, freq);
+		float currentNote = notebuffer_temp[0];
+		int octave = notebuffer_temp[1];
+
+		getLowestNote(currentNote, freq);
+		currentNote = notebuffer_temp[0];
+		int semitonePos = notebuffer_temp[1];
+		octave += notebuffer_temp[2];
+
+		getLowestFreq(currentNote, accuracy, freq);
+		float foundFreq = notebuffer_temp[0];
+		float distFromNote = notebuffer_temp[1];
+		semitonePos += notebuffer_temp[2];
+
+		if(semitonePos < 0){
+			octave -= 1;
+			semitonePos = NUMBEROFNOTES + semitonePos;
+		}
+
+		notebuffer[0] = semitonePos;
+		notebuffer[1] = octave;
+		notebuffer[2] = distFromNote;
+	}
+	else {
+		getHighestOctave(A4, freq);
+		float currentNote = notebuffer_temp[0];
+		int octave = notebuffer_temp[1];
+
+		getHighestNote(currentNote, freq);
+		currentNote = notebuffer_temp[0];
+		int semitonePos = notebuffer_temp[1];
+		octave += notebuffer_temp[2];
+
+		getHighestFreq(currentNote, accuracy, freq);
+		float foundFreq = notebuffer_temp[0];
+		float distFromNote = notebuffer_temp[1];
+		semitonePos += notebuffer_temp[2];
+
+		if(semitonePos < 0){
+			octave -= 1;
+			semitonePos = NUMBEROFNOTES + semitonePos;
+		}
+
+		notebuffer[0] = semitonePos;
+		notebuffer[1] = octave;
+		notebuffer[2] = distFromNote;
+	}
+}
 //Quick hack, some amount of delay
 void ms_delay(int ms)
 {
@@ -209,6 +402,20 @@ void TIM4_IRQHandler(void) {
   */
 int main(void)
 {
+	int NOTES[] = {
+			numbers[12],         //C
+			numbers[12] | 1,     //C#
+			numbers[13],         //D
+			numbers[13] | 1,     //D#
+			numbers[14],         //E
+			numbers[15],         //F
+			numbers[15] | 1,     //F#
+			numbers[16],         //G
+			numbers[16] | 1,     //G#
+			numbers[10],         //A
+			numbers[10] | 1,     //A#
+			numbers[11]          //B
+	};
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -243,7 +450,7 @@ int main(void)
 	struct LED green;
 	struct LED blue;
 	
-	red.pin = 9;
+  red.pin = 9;
   red.port = GPIOB;
   red.pwm = &(TIM4->CCR1);
   TIM4ITLEDs[0] = &red;
@@ -258,7 +465,11 @@ int main(void)
   green.pwm = &(TIM4->CCR3);
   TIM4ITLEDs[2] = &green;
 		
-	send7seg(0);
+  send7seg(numbers[8] | 1);
+  send7seg(numbers[8] | 1);
+  GPIOB->ODR |= 1 << SER_STR;
+  ms_delay(1000);
+  send7seg(0);
   send7seg(0);
   GPIOB->ODR |= 1 << SER_STR;
   /* USER CODE END 2 */
@@ -268,10 +479,7 @@ int main(void)
 	int intensity = 0;
 	int mask = 0x8;//F0;
 	
-	*(blue.pwm) = 10;
-  *(green.pwm) = 500;
-  *(red.pwm) = 750;
-	
+
 	HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
 	HAL_NVIC_SetPriority(TIM4_IRQn, 1, 1);
 	HAL_NVIC_EnableIRQ(TIM4_IRQn);
@@ -287,78 +495,83 @@ int main(void)
 	Yin yin;
 	float pitch;
 	Yin_init(&yin, BUFLEN, 0.05);
+	int validSamples = 0;
+
+	*(red.pwm) = 750;
+	ms_delay(1000);
+	*(red.pwm) = 0;
+	*(blue.pwm) = 750;
+	ms_delay(1000);
+	*(blue.pwm) = 0;
+	*(green.pwm) = 750;
+	ms_delay(1000);
+	*(green.pwm) = 0;
+
   while (1)
   {
-		if(bufFull){
-		//if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK) 
-    /* USER CODE END WHILE */
-
-		//ms_delay(250);
-    int maske0 =  (mask & 0x8) >> 3;
-    int maske1 =  (mask & 0x4) >> 2;
-    int maskb =  (mask & 0x2) >> 1;
-    *(blue.pwm) = intensity * maske1;
-    *(green.pwm) = intensity * maske0;
-    *(red.pwm) = intensity * maskb;
-    intensity += 3;
-    intensity %= 1000;
-    //send7seg(numbers[(intensity/10)%10]);
-    //send7seg(numbers[(intensity/100)%10]);
-    mask = mask >> 1;
-    if(mask < 2){
-     mask = 0x8;//F0;
-     GPIOB->ODR |= 1 << SER_STR;
-    }
-    //send7seg(numbers[ptr]);
-    //send7seg(numbers[ptr]);
-    ptr++;
-    ptr %= sizeof(numbers)/sizeof(int);
-    GPIOB->ODR |= 1 << SER_STR;
-				pitch = Yin_getPitch(&yin, adc_buf);
-				uint8_t neg = 0;
-				/*int16_t g_ADCValue = adc_buf[BUFLEN/2];//adc_peak - adc_low;
-				if(g_ADCValue < 0){
-					neg = 1;
-					g_ADCValue *= -1;
-				}*/
-			  uint16_t g_ADCValue = adc_peak - adc_low;
-				//HAL_ADC_Stop(&hadc1);
-				//uint16_t g_ADCValue = (uint16_t) (pitch);
-				uint32_t div = 1000000000;
-				int startH = 1;
-				int startL = 1;
-				while(div > 0){
-				  int lower = g_ADCValue/(div/10);
-				  int higher = g_ADCValue/div;
-				  if(lower > 0 && startL) startL = 0;
-				  if(higher > 0 && startH) startH = 0;
-				
-				if(div/10 > 0 && !startL){
-					uint16_t nbr = numbers[lower%10];
-					if(neg) nbr |= 1;
-					send7seg(nbr);
+	if(bufFull){
+		pitch = Yin_getPitch(&yin, adc_buf);
+		if(pitch > 50){
+			getNote(pitch, 1, A4);
+			int note = NOTES[notebuffer[0]];
+			int octave = numbers[notebuffer[1]];
+			float distFromNote = notebuffer[2];
+			if(distFromNote > 1){
+				*(green.pwm) = 0;
+				*(red.pwm) = 0;
+				*(blue.pwm) = (volatile uint32_t) ((distFromNote/(ACCDIVIDER/2.0))*1000);
+			}
+			else if(distFromNote < -1){
+				*(green.pwm) = 0;
+				*(red.pwm) = (volatile uint32_t) (((-1 * distFromNote)/(ACCDIVIDER/2.0))*1000);
+				*(blue.pwm) = 0;
+			} else {
+				*(green.pwm) = 1000;
+				*(red.pwm) = 0;
+				*(blue.pwm) = 0;
+			}
+			send7seg(octave);
+			send7seg(note);
+			GPIOB->ODR |= 1 << SER_STR;
+		}
+		else{
+			uint16_t g_ADCValue = (uint16_t) pitch;//adc_peak - adc_low;
+			uint32_t div = 1000000000;
+			int startH = 1;
+			int startL = 1;
+			if(g_ADCValue == 0){
+				startH = 0;
+				startL = 0;
+			}
+			while(div > 0){
+			  int lower = g_ADCValue/(div/10);
+			  int higher = g_ADCValue/div;
+			  if(lower > 0 && startL) startL = 0;
+			  if(higher > 0 && startH) startH = 0;
+			  if(div/10 > 0 && !startL){
+				uint16_t nbr = numbers[lower%10];
+				send7seg(nbr);
 				} else {
-					send7seg(0);
+				send7seg(0);
 				}
-				if(!startH){
-					send7seg(numbers[higher%10]);
-				} else {
-					send7seg(0);
-				}
-				div /= 10;
+			  if(!startH){
+				  send7seg(numbers[higher%10]);
+			  } else {
+				  send7seg(0);
+			  }
+			  div /= 10;
 				GPIOB->ODR |= 1 << SER_STR;
 				ms_delay(150);
 			}
 			send7seg(0);
 			send7seg(0);
 			GPIOB->ODR |= 1 << SER_STR;
-			ms_delay(1000);
-		  HAL_ADC_Start(&hadc1);
-			bufPos = 0;
-			bufFull = 0;
-			adc_peak = 0;
-			adc_low = 0xFFFF;
-			HAL_NVIC_EnableIRQ(TIM3_IRQn);
+	}
+	bufPos = 0;
+	bufFull = 0;
+	adc_peak = 0;
+	adc_low = 0xFFFF;
+	HAL_NVIC_EnableIRQ(TIM3_IRQn);
 		}
     /* USER CODE BEGIN 3 */
   }

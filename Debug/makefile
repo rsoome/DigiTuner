@@ -11,16 +11,6 @@ RM := rm -rf
 -include startup/subdir.mk
 -include Src/subdir.mk
 -include Drivers/STM32F4xx_HAL_Driver/Src/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/TransformFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/SupportFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/StatisticsFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/MatrixFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/FilteringFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/FastMathFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/ControllerFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/ComplexMathFunctions/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/CommonTables/subdir.mk
--include Drivers/CMSIS/DSP_Lib/Source/BasicMathFunctions/subdir.mk
 -include subdir.mk
 -include objects.mk
 
@@ -38,13 +28,13 @@ endif
 # Add inputs and outputs from these tool invocations to the build variables 
 
 # All Target
-all: DigitalTuner.elf
+all: cubemx.elf
 
 # Tool invocations
-DigitalTuner.elf: $(OBJS) $(USER_OBJS) ../STM32F412VETx_FLASH.ld
+cubemx.elf: $(OBJS) $(USER_OBJS) ../STM32F412VETx_FLASH.ld
 	@echo 'Building target: $@'
 	@echo 'Invoking: MCU GCC Linker'
-	arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -specs=nosys.specs -specs=nano.specs -T"../STM32F412VETx_FLASH.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "DigitalTuner.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
+	arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -specs=nosys.specs -specs=nano.specs -T"../STM32F412VETx_FLASH.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "cubemx.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
 	@echo 'Finished building target: $@'
 	@echo ' '
 	$(MAKE) --no-print-directory post-build
@@ -56,8 +46,8 @@ clean:
 
 post-build:
 	-@echo 'Generating hex and Printing size information:'
-	arm-none-eabi-objcopy -O ihex "DigitalTuner.elf" "DigitalTuner.hex"
-	arm-none-eabi-size "DigitalTuner.elf"
+	arm-none-eabi-objcopy -O ihex "cubemx.elf" "cubemx.hex"
+	arm-none-eabi-size "cubemx.elf"
 	-@echo ' '
 
 .PHONY: all clean dependents
